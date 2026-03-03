@@ -7,12 +7,19 @@
     "node": ">=22"
   },
   "exports": {
-    ".": "./src/versionary.js"
+    ".": {
+      "types": "./types/versionary.d.ts",
+      "default": "./src/versionary.js"
+    }
   },
+  "types": "./types/versionary.d.ts",
   "files": [
-    "src"
+    "src",
+    "types"
   ],
   "scripts": {
+    "build:types": "tsc",
+    "prepublishOnly": "npm run build:types",
     "test": "node --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=90 test/unit/*.test.js test/integration/*.test.js"
   },
   "dependencies": {
@@ -22,5 +29,9 @@
     "npm-registry-fetch": "^18.0.2",
     "pacote": "^21.0.0",
     "semver": "^7.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "typescript": "^5.9.3"
   }
 }
