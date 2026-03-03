@@ -12,7 +12,6 @@ import { cleanStore } from './maintenance/clean.js';
 import { prunePackage } from './maintenance/prune.js';
 import { uninstallAlias } from './maintenance/uninstall.js';
 import { ensureStoreInitialized } from './store/ensure-store.js';
-import { getLockPath, withLock } from './store/locks.js';
 import { readStorePackage } from './store/read-store-package.js';
 import { writeStorePackage } from './store/write-store-package.js';
 import { resolveTarget } from './resolve/resolve-target.js';
@@ -135,7 +134,7 @@ export class Versionary {
     });
 
     this.paths = paths;
-    this.npmOptions = buildNpmOptions({
+    this.npmOptions = await buildNpmOptions({
       ...this.options,
       storeRoot: this.storeRoot,
       cacheDir: this.options.cacheDir ?? paths.cacheRoot,
@@ -185,96 +184,92 @@ export class Versionary {
       storeRoot: this.storeRoot,
     });
 
-    const lockPath = getLockPath(paths.locksRoot, installRecord.alias);
+    const storePackage = await this.#readCurrentStorePackage();
+    const existingRecord = storePackage.versionary.packages?.[installRecord.alias];
+    let installPathExists = true;
 
-    return withLock(lockPath, async () => {
-      const storePackage = await this.#readCurrentStorePackage();
-      const existingRecord = storePackage.versionary.packages?.[installRecord.alias];
-      let installPathExists = true;
-
-      try {
-        await access(installRecord.installPath, fsConstants.F_OK);
-      } catch (error) {
-        if (error.code === 'ENOENT') {
-          installPathExists = false;
-        } else {
-          throw error;
-        }
+    try {
+      await access(installRecord.installPath, fsConstants.F_OK);
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        installPathExists = false;
+      } else {
+        throw error;
       }
+    }
 
-      if (
-        existingRecord &&
-        !options.force &&
-        existingRecord.dependencySpec === installRecord.dependencySpec &&
-        installPathExists
-      ) {
-        return {
-          alias: installRecord.alias,
-          ...existingRecord,
-          installPath: installRecord.installPath,
-        };
-      }
-
-      storePackage.dependencies[installRecord.alias] = installRecord.dependencySpec;
-      storePackage.versionary.packages[installRecord.alias] = {
-        packageName: installRecord.packageName,
-        requestedSpec: installRecord.requestedSpec,
-        dependencySpec: installRecord.dependencySpec,
-        resolvedType: installRecord.resolvedType,
-        resolvedVersion: installRecord.resolvedVersion,
-        resolvedLocator: installRecord.resolvedLocator,
-        integrity: installRecord.integrity,
-        gitSha: installRecord.gitSha,
-        installedAt: installRecord.installedAt,
-        artifactPath: installRecord.artifactPath,
-      };
-
-      await writeStorePackage(paths.packageJsonPath, storePackage);
-
-      try {
-        await reifyStore(this.storeRoot, this.npmOptions);
-        await rewriteInstalledManifest(installRecord);
-      } catch (error) {
-        throw createError(
-          'ERR_VERSIONARY_INSTALL_FAILED',
-          'Failed to install managed package.',
-          { packageName: name, spec: requestedSpec, alias: installRecord.alias },
-          { cause: error }
-        );
-      }
-
-      const record = {
+    if (
+      existingRecord &&
+      !options.force &&
+      existingRecord.dependencySpec === installRecord.dependencySpec &&
+      installPathExists
+    ) {
+      return {
         alias: installRecord.alias,
-        ...structuredClone(storePackage.versionary.packages[installRecord.alias]),
+        ...existingRecord,
         installPath: installRecord.installPath,
       };
+    }
 
-      if (installOptions.verify) {
-        const verifyOptions = installOptions.verify === true ? {} : installOptions.verify;
-        const result = await this.verify(record, verifyOptions);
-        if (!result.ok) {
-          throw createError(
-            'ERR_VERSIONARY_VERIFY_FAILED',
-            'Managed package verification failed after install.',
-            { alias: record.alias },
-            { cause: result.error }
-          );
-        }
+    storePackage.dependencies[installRecord.alias] = installRecord.dependencySpec;
+    storePackage.versionary.packages[installRecord.alias] = {
+      packageName: installRecord.packageName,
+      requestedSpec: installRecord.requestedSpec,
+      dependencySpec: installRecord.dependencySpec,
+      resolvedType: installRecord.resolvedType,
+      resolvedVersion: installRecord.resolvedVersion,
+      resolvedLocator: installRecord.resolvedLocator,
+      integrity: installRecord.integrity,
+      gitSha: installRecord.gitSha,
+      installedAt: installRecord.installedAt,
+      artifactPath: installRecord.artifactPath,
+    };
+
+    await writeStorePackage(paths.packageJsonPath, storePackage);
+
+    try {
+      await reifyStore(this.storeRoot, this.npmOptions);
+      await rewriteInstalledManifest(installRecord);
+    } catch (error) {
+      throw createError(
+        'ERR_VERSIONARY_INSTALL_FAILED',
+        'Failed to install managed package.',
+        { packageName: name, spec: requestedSpec, alias: installRecord.alias },
+        { cause: error }
+      );
+    }
+
+    const record = {
+      alias: installRecord.alias,
+      ...structuredClone(storePackage.versionary.packages[installRecord.alias]),
+      installPath: installRecord.installPath,
+    };
+
+    if (installOptions.verify) {
+      const verifyOptions = installOptions.verify === true ? {} : installOptions.verify;
+      const result = await this.verify(record, verifyOptions);
+      if (!result.ok) {
+        throw createError(
+          'ERR_VERSIONARY_VERIFY_FAILED',
+          'Managed package verification failed after install.',
+          { alias: record.alias },
+          { cause: result.error }
+        );
       }
+    }
 
-      if (installOptions.prune) {
-        const currentStorePackage = await this.#readCurrentStorePackage();
-        await prunePackage({
-          storePackage: currentStorePackage,
-          packageJsonPath: this.paths.packageJsonPath,
-          packageName: installRecord.packageName,
-          keepAliases: [record.alias],
-          npmOptions: this.npmOptions,
-        });
-      }
+    if (installOptions.prune) {
+      const currentStorePackage = await this.#readCurrentStorePackage();
+      await prunePackage({
+        storePackage: currentStorePackage,
+        packageJsonPath: this.paths.packageJsonPath,
+        packageName: installRecord.packageName,
+        keepAliases: [record.alias],
+        npmOptions: this.npmOptions,
+      });
+    }
 
-      return record;
-    });
+    return record;
   }
 
   /**
@@ -364,16 +359,12 @@ export class Versionary {
     await this.#initialize();
     const storePackage = await this.#readCurrentStorePackage();
     const record = resolveTarget(this.storeRoot, storePackage, target);
-    const lockPath = getLockPath(this.paths.locksRoot, record.alias);
-
-    return withLock(lockPath, async () => {
-      const currentStorePackage = await this.#readCurrentStorePackage();
-      return uninstallAlias({
-        storePackage: currentStorePackage,
-        packageJsonPath: this.paths.packageJsonPath,
-        alias: record.alias,
-        npmOptions: this.npmOptions,
-      });
+    const currentStorePackage = await this.#readCurrentStorePackage();
+    return uninstallAlias({
+      storePackage: currentStorePackage,
+      packageJsonPath: this.paths.packageJsonPath,
+      alias: record.alias,
+      npmOptions: this.npmOptions,
     });
   }
 
@@ -385,16 +376,12 @@ export class Versionary {
    */
   async prune(packageName) {
     await this.#initialize();
-    const lockPath = getLockPath(this.paths.locksRoot, `prune:${packageName}`);
-
-    return withLock(lockPath, async () => {
-      const storePackage = await this.#readCurrentStorePackage();
-      return prunePackage({
-        storePackage,
-        packageJsonPath: this.paths.packageJsonPath,
-        packageName,
-        npmOptions: this.npmOptions,
-      });
+    const storePackage = await this.#readCurrentStorePackage();
+    return prunePackage({
+      storePackage,
+      packageJsonPath: this.paths.packageJsonPath,
+      packageName,
+      npmOptions: this.npmOptions,
     });
   }
 
@@ -405,14 +392,10 @@ export class Versionary {
    */
   async clean() {
     await this.#initialize();
-    const lockPath = getLockPath(this.paths.locksRoot, 'clean');
-
-    return withLock(lockPath, async () => {
-      const storePackage = await this.#readCurrentStorePackage();
-      return cleanStore({
-        paths: this.paths,
-        storePackage,
-      });
+    const storePackage = await this.#readCurrentStorePackage();
+    return cleanStore({
+      paths: this.paths,
+      storePackage,
     });
   }
 }

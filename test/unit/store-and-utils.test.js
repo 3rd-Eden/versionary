@@ -4,8 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { buildNpmOptions } from '../../src/utils/npm-options.js';
+import { readNpmrc } from '../../src/utils/npmrc.js';
 import { ensureStoreInitialized } from '../../src/store/ensure-store.js';
-import { getLockPath, withLock } from '../../src/store/locks.js';
 import { readStorePackage } from '../../src/store/read-store-package.js';
 import { writeStorePackage } from '../../src/store/write-store-package.js';
 
@@ -18,8 +18,8 @@ async function readJson(filePath) {
 }
 
 describe('store and utility modules', () => {
-  it('builds npm options with registry, scopes, and auth tokens', () => {
-    const options = buildNpmOptions({
+  it('builds npm options with registry, scopes, and auth tokens', async () => {
+    const options = await buildNpmOptions({
       storeRoot: '/tmp/versionary-store',
       registry: 'https://registry.example.test/root',
       scopes: {
@@ -45,6 +45,24 @@ describe('store and utility modules', () => {
     assert.equal(options.tmp, '/tmp/versionary-tmp');
     assert.equal(options.path, '/tmp/versionary-store');
     assert.equal(options.where, '/tmp/versionary-store');
+  });
+
+  it('loads npm config chain via @npmcli/config', async () => {
+    const rc = await readNpmrc();
+    assert.equal(typeof rc, 'object');
+    assert.equal(typeof rc.registry, 'string');
+  });
+
+  it('merges npmrc config into build options with explicit overrides winning', async () => {
+    const options = await buildNpmOptions({
+      storeRoot: '/tmp/versionary-store',
+      registry: 'https://override.example.test/',
+      cacheDir: '/tmp/cache',
+      tempDir: '/tmp/tmp',
+    });
+
+    assert.equal(options.registry, 'https://override.example.test/');
+    assert.equal(typeof options, 'object');
   });
 
   it('reads missing store manifests as null and writes manifests atomically', async () => {
@@ -192,21 +210,4 @@ describe('store and utility modules', () => {
     }
   });
 
-  it('acquires and releases locks and times out when a lock stays busy', async () => {
-    const tempDir = await createTempDir();
-
-    try {
-      const lockPath = getLockPath(tempDir, 'install:abbrev');
-      const result = await withLock(lockPath, async () => 'locked');
-      assert.equal(result, 'locked');
-
-      await mkdir(lockPath, { recursive: true });
-      await assert.rejects(
-        () => withLock(lockPath, async () => 'never', { timeoutMs: 10, pollMs: 1 }),
-        (error) => error?.code === 'ERR_VERSIONARY_LOCK_TIMEOUT'
-      );
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
 });

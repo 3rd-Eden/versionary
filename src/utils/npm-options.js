@@ -1,4 +1,5 @@
 import { URL } from 'node:url';
+import { readNpmrc } from './npmrc.js';
 
 /**
  * Converts a registry URL into the npm config key used for auth tokens.
@@ -15,6 +16,10 @@ function toRegistryKey(registryUrl) {
 /**
  * Builds the npm-compatible options object passed to pacote and Arborist.
  *
+ * Loads the full npm config chain via @npmcli/config first so that auth
+ * tokens and registry settings from .npmrc files are available by default,
+ * then applies any explicit constructor options on top.
+ *
  * @param {{
  *   storeRoot: string,
  *   registry?: string,
@@ -24,9 +29,9 @@ function toRegistryKey(registryUrl) {
  *   cacheDir?: string,
  *   tempDir?: string
  * }} [config]
- * @returns {Record<string, string|number|boolean|undefined>}
+ * @returns {Promise<Record<string, string|number|boolean|undefined>>}
  */
-export function buildNpmOptions(config = {}) {
+export async function buildNpmOptions(config = {}) {
   const {
     storeRoot,
     registry,
@@ -37,7 +42,10 @@ export function buildNpmOptions(config = {}) {
     tempDir,
   } = config;
 
+  const rc = await readNpmrc();
+
   const options = {
+    ...rc,
     ...npmConfig,
     cache: cacheDir,
     tmp: tempDir,

@@ -36,7 +36,6 @@ export async function ensureStoreInitialized(config) {
   const paths = getStorePaths(config.storeRoot);
 
   await mkdir(paths.storeRoot, { recursive: true });
-  await mkdir(paths.locksRoot, { recursive: true });
   await mkdir(paths.tmpRoot, { recursive: true });
   await mkdir(paths.artifactsRoot, { recursive: true });
   await mkdir(paths.metadataRoot, { recursive: true });
