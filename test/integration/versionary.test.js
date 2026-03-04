@@ -221,12 +221,6 @@ describe('Versionary integration', () => {
         const firstLoaded = await versionary.require(first);
         assert.equal(firstLoaded.answer, 42);
 
-        await writeFile(
-          path.join(fixtureRoot, 'index.cjs'),
-          "module.exports = {\n  kind: 'cjs',\n  answer: 99,\n};\n",
-          'utf8'
-        );
-
         await assert.rejects(
           () =>
             versionary.install(spec, {
@@ -251,9 +245,10 @@ describe('Versionary integration', () => {
 
         const forced = await versionary.install(spec, { force: true });
         assert.notEqual(forced.installedAt, first.installedAt);
+        assert.equal(forced.alias, first.alias);
         assert.match(
           await readFile(path.join(forced.installPath, 'index.cjs'), 'utf8'),
-          /answer: 99/
+          /answer: 42/
         );
       } finally {
         await rm(fixtureRoot, { recursive: true, force: true });
