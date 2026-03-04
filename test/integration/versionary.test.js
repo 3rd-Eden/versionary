@@ -242,13 +242,18 @@ describe('Versionary integration', () => {
         );
 
         await new Promise((resolve) => setTimeout(resolve, 20));
+        await writeFile(
+          path.join(fixtureRoot, 'index.cjs'),
+          "module.exports = {\n  kind: 'cjs',\n  answer: 99,\n};\n",
+          'utf8'
+        );
 
         const forced = await versionary.install(spec, { force: true });
         assert.notEqual(forced.installedAt, first.installedAt);
-        assert.equal(forced.alias, first.alias);
+        assert.notEqual(forced.alias, first.alias);
         assert.match(
           await readFile(path.join(forced.installPath, 'index.cjs'), 'utf8'),
-          /answer: 42/
+          /answer: 99/
         );
       } finally {
         await rm(fixtureRoot, { recursive: true, force: true });
@@ -295,11 +300,6 @@ describe('Versionary integration', () => {
         const beforeArtifact = await stat(first.artifactPath);
 
         await new Promise((resolve) => setTimeout(resolve, 20));
-        await writeFile(
-          path.join(fixtureRoot, 'index.cjs'),
-          "module.exports = {\n  kind: 'cjs',\n  answer: 77,\n};\n",
-          'utf8'
-        );
 
         const second = await versionary.install(spec);
         const afterArtifact = await stat(first.artifactPath);

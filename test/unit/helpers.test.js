@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { parseInstallSpec } from '../../src/install/parse-spec.js';
+import { hashDirectoryContent, hashFileContent } from '../../src/utils/hash.js';
 import { packageNameToSegment } from '../../src/utils/package-name-segment.js';
 import { getDefaultStoreRoot } from '../../src/utils/paths.js';
 import { parseStringTarget } from '../../src/resolve/parse-string-target.js';
 import { resolveSemverSelector } from '../../src/resolve/resolve-semver-selector.js';
+
+async function createTempDir() {
+  return mkdtemp(path.join(os.tmpdir(), 'versionary-unit-'));
+}
 
 describe('helpers', () => {
   it('uses the fixed default store root', () => {
@@ -69,5 +75,30 @@ describe('helpers', () => {
       resolveSemverSelector('@example/pkg', '1.2.0', records)?.alias,
       '@versionary/example__pkg--1.2.0'
     );
+  });
+
+  it('hashes local files and directory trees deterministically', async () => {
+    const tempDir = await createTempDir();
+    const filePath = path.join(tempDir, 'fixture.txt');
+    const nestedDir = path.join(tempDir, 'nested');
+    const nestedFile = path.join(nestedDir, 'value.txt');
+    const linkPath = path.join(tempDir, 'fixture-link.txt');
+
+    try {
+      await writeFile(filePath, 'alpha\n', 'utf8');
+      await mkdir(nestedDir, { recursive: true });
+      await writeFile(nestedFile, 'beta\n', 'utf8');
+      await symlink('./fixture.txt', linkPath);
+
+      const fileHash = await hashFileContent(filePath);
+      const dirHash = await hashDirectoryContent(tempDir);
+
+      await writeFile(filePath, 'gamma\n', 'utf8');
+
+      assert.notEqual(await hashFileContent(filePath), fileHash);
+      assert.notEqual(await hashDirectoryContent(tempDir), dirHash);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 });

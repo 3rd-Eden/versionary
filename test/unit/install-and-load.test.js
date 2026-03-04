@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, it } from 'node:test';
+import Arborist from '@npmcli/arborist';
+import pacote from 'pacote';
 import { normalizeDependencySpec } from '../../src/install/normalize-dependency-spec.js';
 import { resolveInstall } from '../../src/install/resolve-install.js';
 import { rewriteInstalledManifest } from '../../src/install/rewrite-installed-manifest.js';
@@ -97,6 +99,7 @@ describe('install and load modules', () => {
       artifactsRoot: path.join(tempDir, 'artifacts')
     };
     const fixtureDir = path.join(tempDir, 'pkg');
+    const tarballPath = path.join(tempDir, 'pkg.tgz');
 
     try {
       await mkdir(paths.artifactsRoot, { recursive: true });
@@ -108,6 +111,10 @@ describe('install and load modules', () => {
         exports: './index.js'
       }), 'utf8');
       await writeFile(path.join(fixtureDir, 'index.js'), 'export default 42;\n', 'utf8');
+      await pacote.tarball.file(`file:${fixtureDir}`, tarballPath, {
+        where: tempDir,
+        Arborist
+      });
 
       const registryRecord = await resolveInstall({
         parsed: { raw: 'abbrev@1.1.1', registry: true, type: 'version' },
@@ -139,6 +146,24 @@ describe('install and load modules', () => {
       assert.equal(directoryRecord.alias.startsWith('@versionary/example__local-fixture--'), true);
       assert.equal(directoryRecord.resolvedType, 'directory');
       assert.equal(directoryRecord.dependencySpec.startsWith('file:'), true);
+
+      const tarballRecord = await resolveInstall({
+        parsed: {
+          raw: `file:${tarballPath}`,
+          registry: false,
+          type: 'file',
+          fetchSpec: tarballPath
+        },
+        requestedSpec: `file:${tarballPath}`,
+        packageName: '@example/local-fixture',
+        npmOptions: {},
+        paths,
+        storeRoot: tempDir
+      });
+
+      assert.equal(tarballRecord.alias.startsWith('@versionary/example__local-fixture--'), true);
+      assert.equal(tarballRecord.resolvedType, 'local-tarball');
+      assert.equal(tarballRecord.dependencySpec.startsWith('file:'), true);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

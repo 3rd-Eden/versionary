@@ -1,6 +1,6 @@
 import pacote from 'pacote';
 import semver from 'semver';
-import { shortHash } from '../utils/hash.js';
+import { hashDirectoryContent, hashFileContent, shortHash } from '../utils/hash.js';
 import { packageNameToSegment } from '../utils/package-name-segment.js';
 import { getAliasInstallPath } from '../utils/paths.js';
 import { normalizeDependencySpec } from './normalize-dependency-spec.js';
@@ -42,13 +42,18 @@ function mapResolvedType(parsed) {
  * @param {string} resolvedType
  * @param {string|undefined} resolvedVersion
  * @param {string} resolvedLocator
+ * @param {string|undefined} localContentHash
  * @returns {string}
  */
-function createAlias(packageName, resolvedType, resolvedVersion, resolvedLocator) {
+function createAlias(packageName, resolvedType, resolvedVersion, resolvedLocator, localContentHash) {
   const segment = packageNameToSegment(packageName);
 
   if (resolvedType === 'registry' && resolvedVersion) {
     return `@versionary/${segment}--${resolvedVersion}`;
+  }
+
+  if ((resolvedType === 'local-tarball' || resolvedType === 'directory') && localContentHash) {
+    return `@versionary/${segment}--${shortHash(localContentHash)}`;
   }
 
   return `@versionary/${segment}--${shortHash(resolvedLocator)}`;
@@ -98,7 +103,13 @@ export async function resolveInstall(context) {
   const resolvedLocator = manifest._resolved ?? (await pacote.resolve(parsed.raw, npmOptions));
   const resolvedType = mapResolvedType(parsed);
   const resolvedVersion = semver.valid(manifest.version) ? manifest.version : undefined;
-  const alias = createAlias(packageName, resolvedType, resolvedVersion, resolvedLocator);
+  const localContentHash =
+    parsed.type === 'file'
+      ? await hashFileContent(parsed.fetchSpec)
+      : parsed.type === 'directory'
+        ? await hashDirectoryContent(parsed.fetchSpec)
+        : undefined;
+  const alias = createAlias(packageName, resolvedType, resolvedVersion, resolvedLocator, localContentHash);
   const { dependencySpec, artifactPath } = await normalizeDependencySpec({
     ...context,
     alias,
