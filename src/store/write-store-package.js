@@ -1,11 +1,13 @@
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+/** @typedef {import('../types.js').StorePackage} StorePackage */
+
 /**
  * Writes the store root package manifest atomically.
  *
  * @param {string} packageJsonPath
- * @param {Record<string, unknown>} storePackage
+ * @param {StorePackage} storePackage
  * @returns {Promise<void>}
  */
 export async function writeStorePackage(packageJsonPath, storePackage) {

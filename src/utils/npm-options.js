@@ -21,13 +21,14 @@ function toRegistryKey(registryUrl) {
  * then applies any explicit constructor options on top.
  *
  * @param {{
- *   storeRoot: string,
+ *   storeRoot?: string,
  *   registry?: string,
  *   scopes?: Record<string, string>,
  *   npmConfig?: Record<string, string|number|boolean>,
  *   authTokens?: Record<string, string>,
  *   cacheDir?: string,
- *   tempDir?: string
+ *   tempDir?: string,
+ *   warn?: (message: string) => void
  * }} [config]
  * @returns {Promise<Record<string, string|number|boolean|undefined>>}
  */
@@ -40,10 +41,12 @@ export async function buildNpmOptions(config = {}) {
     authTokens = {},
     cacheDir,
     tempDir,
+    warn,
   } = config;
 
-  const rc = await readNpmrc();
+  const rc = await readNpmrc({ warn });
 
+  /** @type {Record<string, any>} */
   const options = {
     ...rc,
     ...npmConfig,

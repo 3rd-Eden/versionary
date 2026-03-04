@@ -32,7 +32,7 @@ export async function normalizeDependencySpec(context) {
   }
 
   if (parsed.type === 'file' || parsed.type === 'directory') {
-    return snapshotLocalSource(context);
+    return snapshotLocalSource(/** @type {any} */ (context));
   }
 
   return {

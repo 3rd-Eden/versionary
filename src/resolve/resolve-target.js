@@ -1,4 +1,6 @@
 import { createError } from '../errors.js';
+/** @typedef {import('../types.js').StorePackage} StorePackage */
+/** @typedef {import('../types.js').PackageRecord} PackageRecord */
 import { getAliasInstallPath } from '../utils/paths.js';
 import { parseStringTarget } from './parse-string-target.js';
 import { resolveSemverSelector } from './resolve-semver-selector.js';
@@ -7,11 +9,12 @@ import { resolveSemverSelector } from './resolve-semver-selector.js';
  * Resolves a caller target into one concrete installed record.
  *
  * @param {string} storeRoot
- * @param {{ versionary?: { packages?: Record<string, Record<string, unknown>> } }} storePackage
+ * @param {StorePackage} storePackage
  * @param {string|{ alias: string }|{ name: string, spec: string }} target
- * @returns {Record<string, unknown> & { alias: string, installPath: string }}
+ * @returns {PackageRecord & { alias: string, installPath: string }}
  */
 export function resolveTarget(storeRoot, storePackage, target) {
+  /** @type {Array<PackageRecord & { alias: string }>} */
   const records = Object.entries(storePackage.versionary.packages ?? {}).map(([alias, record]) => ({
     alias,
     ...record,

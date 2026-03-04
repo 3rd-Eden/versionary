@@ -1,10 +1,11 @@
 import { readFile } from 'node:fs/promises';
+/** @typedef {import('../types.js').StorePackage} StorePackage */
 
 /**
  * Reads the store root package manifest.
  *
  * @param {string} packageJsonPath
- * @returns {Promise<Record<string, unknown>|null>}
+ * @returns {Promise<StorePackage|null>}
  */
 export async function readStorePackage(packageJsonPath) {
   try {

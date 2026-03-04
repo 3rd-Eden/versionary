@@ -151,6 +151,7 @@ describe('resolve and maintenance modules', () => {
     const artifactsRoot = path.join(tempDir, '.versionary', 'artifacts');
     const tmpRoot = path.join(tempDir, '.versionary', 'tmp');
     const metadataRoot = path.join(tempDir, '.versionary', 'metadata');
+    const cacheRoot = path.join(tempDir, '.versionary', 'cache');
 
     try {
       const uninstallStore = {
@@ -180,6 +181,7 @@ describe('resolve and maintenance modules', () => {
           storePackage: uninstallStore,
           packageJsonPath,
           alias: '@versionary/missing--1.0.0',
+          storeRoot: tempDir,
           npmOptions: { path: tempDir }
         }),
         { removed: false, alias: '@versionary/missing--1.0.0' }
@@ -189,6 +191,7 @@ describe('resolve and maintenance modules', () => {
         storePackage: uninstallStore,
         packageJsonPath,
         alias: '@versionary/example__pkg--deadbeef',
+        storeRoot: tempDir,
         npmOptions: { path: tempDir }
       });
       assert.deepEqual(removed, { removed: true, alias: '@versionary/example__pkg--deadbeef' });
@@ -213,6 +216,7 @@ describe('resolve and maintenance modules', () => {
         packageJsonPath,
         packageName: 'abbrev',
         keepAliases: ['@versionary/abbrev--3.0.1'],
+        storeRoot: tempDir,
         npmOptions: { path: tempDir }
       });
       assert.deepEqual(pruned.removedAliases, ['@versionary/abbrev--1.1.1']);
@@ -235,6 +239,7 @@ describe('resolve and maintenance modules', () => {
       await mkdir(artifactsRoot, { recursive: true });
       await mkdir(tmpRoot, { recursive: true });
       await mkdir(metadataRoot, { recursive: true });
+      await mkdir(cacheRoot, { recursive: true });
       await writeFile(packageLockPath, '{}', 'utf8');
 
       const cleanResult = await cleanStore({
@@ -244,6 +249,7 @@ describe('resolve and maintenance modules', () => {
           artifactsRoot,
           tmpRoot,
           metadataRoot,
+          cacheRoot,
           packageJsonPath
         },
         storePackage: cleanableStore

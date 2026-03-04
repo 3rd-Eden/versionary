@@ -4,10 +4,11 @@ import { createError } from '../errors.js';
 /**
  * Resolves a semver selector against installed registry-backed records.
  *
+ * @template {({ alias: string, resolvedType: string, resolvedVersion?: string })} T
  * @param {string} packageName
  * @param {string} selector
- * @param {Array<{ alias: string, resolvedType: string, resolvedVersion?: string }>} records
- * @returns {{ alias: string, resolvedType: string, resolvedVersion?: string } | null}
+ * @param {T[]} records
+ * @returns {T | null}
  */
 export function resolveSemverSelector(packageName, selector, records) {
   const registryRecords = records.filter(

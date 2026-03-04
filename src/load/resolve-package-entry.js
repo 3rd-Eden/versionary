@@ -2,6 +2,7 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createError } from '../errors.js';
+import { hasExportCondition } from '../utils/exports.js';
 import { getAliasInstallPath } from '../utils/paths.js';
 
 /**
@@ -57,11 +58,21 @@ function pickConditionalExport(value, conditions) {
 }
 
 /**
+ * @typedef {{
+ *   name?: string,
+ *   type?: string,
+ *   main?: string,
+ *   module?: string,
+ *   exports?: any
+ * } & Record<string, unknown>} InstalledManifest
+ */
+
+/**
  * Reads the installed package manifest for a managed alias.
  *
  * @param {string} storeRoot
  * @param {string} alias
- * @returns {Promise<{ installPath: string, manifest: Record<string, unknown> }>}
+ * @returns {Promise<{ installPath: string, manifest: InstalledManifest }>}
  */
 async function readInstalledManifest(storeRoot, alias) {
   const installPath = getAliasInstallPath(storeRoot, alias);
@@ -72,33 +83,6 @@ async function readInstalledManifest(storeRoot, alias) {
     installPath,
     manifest,
   };
-}
-
-/**
- * Checks whether a conditional exports structure exposes a condition.
- *
- * @param {unknown} value
- * @param {string} condition
- * @returns {boolean}
- */
-function hasCondition(value, condition) {
-  if (!value || typeof value === 'string') {
-    return false;
-  }
-
-  if (Array.isArray(value)) {
-    return value.some((item) => hasCondition(item, condition));
-  }
-
-  if (typeof value === 'object') {
-    if (condition in value) {
-      return true;
-    }
-
-    return Object.values(value).some((item) => hasCondition(item, condition));
-  }
-
-  return false;
 }
 
 /**
@@ -136,7 +120,7 @@ export async function resolveRequireEntry(storeRoot, alias) {
     ? manifest.exports['.']
     : manifest.exports;
   const supportsRequire =
-    hasCondition(exportTarget, 'require') ||
+    hasExportCondition(exportTarget, 'require') ||
     (typeof manifest.main === 'string' && manifest.main.endsWith('.cjs')) ||
     (!manifest.type || manifest.type === 'commonjs');
 

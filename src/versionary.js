@@ -2,6 +2,7 @@ import { access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createError } from './errors.js';
+/** @typedef {import('./types.js').StorePackage} StorePackage */
 import { resolveInstall } from './install/resolve-install.js';
 import { parseInstallSpec } from './install/parse-spec.js';
 import { reifyStore } from './install/reify-store.js';
@@ -16,7 +17,8 @@ import { readStorePackage } from './store/read-store-package.js';
 import { writeStorePackage } from './store/write-store-package.js';
 import { resolveTarget } from './resolve/resolve-target.js';
 import { buildNpmOptions } from './utils/npm-options.js';
-import { getDefaultStoreRoot } from './utils/paths.js';
+import { hasExportCondition } from './utils/exports.js';
+import { getAliasInstallPath, getDefaultStoreRoot } from './utils/paths.js';
 
 /**
  * Infers the verify mode for an installed package from its manifest metadata.
@@ -29,77 +31,46 @@ async function readInstalledManifestMode(record) {
   const manifest = JSON.parse(content);
   const exportsField = manifest.exports;
 
-  if (manifest.type === 'module') {
-    if (hasRequireCondition(exportsField)) {
-      return 'both';
-    }
+  const hasImport = hasExportCondition(exportsField, 'import');
+  const hasRequire = hasExportCondition(exportsField, 'require');
 
-    return 'import';
+  if (manifest.type === 'module') {
+    return hasRequire ? 'both' : 'import';
   }
 
-  if (hasImportCondition(exportsField) && hasRequireCondition(exportsField)) {
+  if (hasImport && hasRequire) {
     return 'both';
   }
 
-  if (hasImportCondition(exportsField) && !hasRequireCondition(exportsField)) {
+  if (hasImport) {
     return 'import';
-  }
-
-  if (hasRequireCondition(exportsField)) {
-    return 'require';
   }
 
   return 'require';
 }
 
 /**
- * Checks whether a package exports structure contains an `import` condition.
- *
- * @param {unknown} exportsField
- * @returns {boolean}
+ * @typedef {{
+ *   debug?: (message: string, meta?: Record<string, unknown>) => void,
+ *   info?: (message: string, meta?: Record<string, unknown>) => void,
+ *   warn?: (message: string, meta?: Record<string, unknown>) => void,
+ *   error?: (message: string, meta?: Record<string, unknown>) => void
+ * }} VersionaryLogger
  */
-function hasImportCondition(exportsField) {
-  if (!exportsField || typeof exportsField === 'string') {
-    return false;
-  }
 
-  if (Array.isArray(exportsField)) {
-    return exportsField.some(hasImportCondition);
-  }
-
-  if ('import' in exportsField) {
-    return true;
-  }
-
-  return Object.values(exportsField).some(hasImportCondition);
-}
-
-/**
- * Checks whether a package exports structure contains a `require` condition.
- *
- * @param {unknown} exportsField
- * @returns {boolean}
- */
-function hasRequireCondition(exportsField) {
-  if (!exportsField || typeof exportsField === 'string') {
-    return false;
-  }
-
-  if (Array.isArray(exportsField)) {
-    return exportsField.some(hasRequireCondition);
-  }
-
-  if ('require' in exportsField) {
-    return true;
-  }
-
-  return Object.values(exportsField).some(hasRequireCondition);
-}
+/** @type {VersionaryLogger} */
+const noopLogger = Object.freeze({});
 
 /**
  * Public API for managing packages in the Versionary store.
  */
 export class Versionary {
+  /** @type {boolean} */
+  #initialized = false;
+
+  /** @type {VersionaryLogger} */
+  #logger;
+
   /**
    * @param {string} [storeRoot]
    * @param {{
@@ -109,25 +80,39 @@ export class Versionary {
    *   authTokens?: Record<string, string>,
    *   cacheDir?: string,
    *   tempDir?: string,
-   *   logger?: {
-   *     debug?: (message: string, meta?: unknown) => void,
-   *     info?: (message: string, meta?: unknown) => void,
-   *     warn?: (message: string, meta?: unknown) => void,
-   *     error?: (message: string, meta?: unknown) => void
-   *   }
+   *   logger?: VersionaryLogger
    * }} [options]
    */
   constructor(storeRoot, options = {}) {
     this.storeRoot = storeRoot ?? getDefaultStoreRoot();
+    this.#logger = options.logger ?? noopLogger;
     this.options = { ...options };
+  }
+
+  /**
+   * @param {'debug'|'info'|'warn'|'error'} level
+   * @param {string} message
+   * @param {Record<string, unknown>} [meta]
+   */
+  #log(level, message, meta) {
+    const fn = this.#logger[level];
+    if (typeof fn === 'function') {
+      fn(message, meta);
+    }
   }
 
   /**
    * Creates or normalizes the managed store and caches the computed paths.
    *
-   * @returns {Promise<{ paths: ReturnType<typeof import('./utils/paths.js').getStorePaths>, storePackage: Record<string, unknown> }>}
+   * @returns {Promise<{ paths: ReturnType<typeof import('./utils/paths.js').getStorePaths>, storePackage?: StorePackage }>}
    */
   async #initialize() {
+    if (this.#initialized) {
+      return { paths: this.paths };
+    }
+
+    this.#log('debug', 'Initializing store', { storeRoot: this.storeRoot });
+
     const { paths, storePackage } = await ensureStoreInitialized({
       ...this.options,
       storeRoot: this.storeRoot,
@@ -139,15 +124,18 @@ export class Versionary {
       storeRoot: this.storeRoot,
       cacheDir: this.options.cacheDir ?? paths.cacheRoot,
       tempDir: this.options.tempDir ?? paths.tmpRoot,
+      warn: (message) => this.#log('warn', message),
     });
 
+    this.#initialized = true;
+    this.#log('debug', 'Store initialized', { storeRoot: this.storeRoot });
     return { paths, storePackage };
   }
 
   /**
    * Reads the current store manifest after initialization.
    *
-   * @returns {Promise<Record<string, unknown>>}
+   * @returns {Promise<StorePackage>}
    */
   async #readCurrentStorePackage() {
     const storePackage = await readStorePackage(this.paths.packageJsonPath);
@@ -169,6 +157,10 @@ export class Versionary {
    * @returns {Promise<Record<string, unknown> & { alias: string, installPath: string }>}
    */
   async install(name, spec, options = {}) {
+    if (typeof name !== 'string' || !name) {
+      throw createError('ERR_VERSIONARY_INVALID_TARGET', 'Package name must be a non-empty string.', { name });
+    }
+
     const { paths } = await this.#initialize();
     const installOptions =
       spec && typeof spec === 'object' && !Array.isArray(spec) ? spec : options;
@@ -204,12 +196,22 @@ export class Versionary {
       existingRecord.dependencySpec === installRecord.dependencySpec &&
       installPathExists
     ) {
+      this.#log('debug', 'Package already installed, skipping', { alias: installRecord.alias });
       return {
         alias: installRecord.alias,
         ...existingRecord,
         installPath: installRecord.installPath,
       };
     }
+
+    this.#log('info', 'Installing package', {
+      packageName: installRecord.packageName,
+      alias: installRecord.alias,
+      resolvedType: installRecord.resolvedType,
+      resolvedVersion: installRecord.resolvedVersion,
+    });
+
+    const snapshot = JSON.stringify(storePackage);
 
     storePackage.dependencies[installRecord.alias] = installRecord.dependencySpec;
     storePackage.versionary.packages[installRecord.alias] = {
@@ -231,6 +233,8 @@ export class Versionary {
       await reifyStore(this.storeRoot, this.npmOptions);
       await rewriteInstalledManifest(installRecord);
     } catch (error) {
+      this.#log('error', 'Install failed, rolling back manifest', { alias: installRecord.alias });
+      await writeStorePackage(paths.packageJsonPath, JSON.parse(snapshot)).catch(() => {});
       throw createError(
         'ERR_VERSIONARY_INSTALL_FAILED',
         'Failed to install managed package.',
@@ -238,6 +242,8 @@ export class Versionary {
         { cause: error }
       );
     }
+
+    this.#log('info', 'Package installed', { alias: installRecord.alias, installPath: installRecord.installPath });
 
     const record = {
       alias: installRecord.alias,
@@ -265,6 +271,7 @@ export class Versionary {
         packageJsonPath: this.paths.packageJsonPath,
         packageName: installRecord.packageName,
         keepAliases: [record.alias],
+        storeRoot: this.storeRoot,
         npmOptions: this.npmOptions,
       });
     }
@@ -282,6 +289,7 @@ export class Versionary {
     await this.#initialize();
     const storePackage = await this.#readCurrentStorePackage();
     const record = resolveTarget(this.storeRoot, storePackage, target);
+    this.#log('debug', 'Importing package', { alias: record.alias });
     return importPackage(this.storeRoot, record.alias);
   }
 
@@ -295,6 +303,7 @@ export class Versionary {
     await this.#initialize();
     const storePackage = await this.#readCurrentStorePackage();
     const record = resolveTarget(this.storeRoot, storePackage, target);
+    this.#log('debug', 'Requiring package', { alias: record.alias });
     return requirePackage(this.storeRoot, record.alias);
   }
 
@@ -310,6 +319,8 @@ export class Versionary {
     const storePackage = await this.#readCurrentStorePackage();
     const record = resolveTarget(this.storeRoot, storePackage, target);
     const mode = options.mode && options.mode !== 'auto' ? options.mode : await readInstalledManifestMode(record);
+
+    this.#log('debug', 'Verifying package', { alias: record.alias, mode });
 
     try {
       let loaded;
@@ -334,12 +345,14 @@ export class Versionary {
         }
       }
 
+      this.#log('debug', 'Verification passed', { alias: record.alias, mode });
       return {
         ok: true,
         alias: record.alias,
         mode,
       };
     } catch (error) {
+      this.#log('warn', 'Verification failed', { alias: record.alias, mode });
       return {
         ok: false,
         alias: record.alias,
@@ -359,11 +372,12 @@ export class Versionary {
     await this.#initialize();
     const storePackage = await this.#readCurrentStorePackage();
     const record = resolveTarget(this.storeRoot, storePackage, target);
-    const currentStorePackage = await this.#readCurrentStorePackage();
+    this.#log('info', 'Uninstalling package', { alias: record.alias });
     return uninstallAlias({
-      storePackage: currentStorePackage,
+      storePackage,
       packageJsonPath: this.paths.packageJsonPath,
       alias: record.alias,
+      storeRoot: this.storeRoot,
       npmOptions: this.npmOptions,
     });
   }
@@ -375,12 +389,18 @@ export class Versionary {
    * @returns {Promise<{ removedAliases: string[], packageName: string }>}
    */
   async prune(packageName) {
+    if (typeof packageName !== 'string' || !packageName) {
+      throw createError('ERR_VERSIONARY_INVALID_TARGET', 'Package name must be a non-empty string.', { packageName });
+    }
+
     await this.#initialize();
+    this.#log('info', 'Pruning package variants', { packageName });
     const storePackage = await this.#readCurrentStorePackage();
     return prunePackage({
       storePackage,
       packageJsonPath: this.paths.packageJsonPath,
       packageName,
+      storeRoot: this.storeRoot,
       npmOptions: this.npmOptions,
     });
   }
@@ -392,10 +412,35 @@ export class Versionary {
    */
   async clean() {
     await this.#initialize();
+    this.#log('info', 'Cleaning store', { storeRoot: this.storeRoot });
     const storePackage = await this.#readCurrentStorePackage();
     return cleanStore({
       paths: this.paths,
       storePackage,
     });
+  }
+
+  /**
+   * Lists installed package records, optionally filtered by original package name.
+   *
+   * @param {string} [packageName]
+   * @returns {Promise<Array<Record<string, unknown> & { alias: string, installPath: string }>>}
+   */
+  async list(packageName) {
+    await this.#initialize();
+    const storePackage = await this.#readCurrentStorePackage();
+    const packages = storePackage.versionary.packages ?? {};
+
+    const entries = Object.entries(packages).map(([alias, record]) => ({
+      alias,
+      ...record,
+      installPath: getAliasInstallPath(this.storeRoot, alias),
+    }));
+
+    if (packageName) {
+      return entries.filter((entry) => entry.packageName === packageName);
+    }
+
+    return entries;
   }
 }

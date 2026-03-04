@@ -23,10 +23,6 @@ export async function rewriteInstalledManifest(record) {
   const manifest = JSON.parse(content);
 
   manifest.name = record.alias;
-  manifest.version =
-    record.resolvedType === 'registry' && record.resolvedVersion
-      ? `npm://${record.packageName}@${record.resolvedVersion}`
-      : `npm://${record.packageName}#${record.gitSha ?? record.alias.split('--').at(-1)}`;
   manifest.versionary = {
     originalName: record.packageName,
     requestedSpec: record.requestedSpec,

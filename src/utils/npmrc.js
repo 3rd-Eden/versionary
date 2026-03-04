@@ -11,7 +11,11 @@ const { definitions, shorthands, flatten, nerfDarts } = defs;
  * @returns {string} Absolute path to the npm package root
  */
 function npmPath() {
-  return resolve(dirname(process.execPath), '..', 'lib', 'node_modules', 'npm');
+  const prefix = resolve(dirname(process.execPath), '..');
+  if (process.platform === 'win32') {
+    return resolve(prefix, 'node_modules', 'npm');
+  }
+  return resolve(prefix, 'lib', 'node_modules', 'npm');
 }
 
 /**
@@ -19,9 +23,10 @@ function npmPath() {
  * files plus environment variables) and return the flattened options object
  * that pacote and Arborist expect.
  *
+ * @param {{ warn?: (message: string) => void }} [options]
  * @returns {Promise<Record<string, unknown>>} Flattened npm config
  */
-export async function readNpmrc() {
+export async function readNpmrc(options = {}) {
   const config = new Config({
     definitions,
     shorthands,
@@ -29,7 +34,7 @@ export async function readNpmrc() {
     nerfDarts,
     npmPath: npmPath(),
     argv: [process.execPath, 'versionary'],
-    warn: false,
+    warn: options.warn ?? (() => {}),
   });
 
   await config.load();

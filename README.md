@@ -64,6 +64,21 @@ new Versionary(storeRoot, {
 });
 ```
 
+The optional `logger` receives structured messages from every public operation:
+
+```js
+const versionary = new Versionary(undefined, {
+  logger: {
+    debug: (message, meta) => console.log('[debug]', message, meta),
+    info: (message, meta) => console.log('[info]', message, meta),
+    warn: (message, meta) => console.warn('[warn]', message, meta),
+    error: (message, meta) => console.error('[error]', message, meta)
+  }
+});
+```
+
+All logger methods are optional. Messages use `info` for install, uninstall, prune, and clean; `debug` for import, require, verify, and initialization; `warn` for verification failures; and `error` for install rollbacks.
+
 Rules:
 
 - `storeRoot` defaults to `~/.versionary`
@@ -228,6 +243,17 @@ After `clean()`:
 - registry config metadata is preserved
 - all installed packages are gone
 
+### `list(packageName)`
+
+Returns installed package records from the store.
+
+```js
+const all = await versionary.list();
+const abbrevVersions = await versionary.list('abbrev');
+```
+
+When `packageName` is provided, only records matching that original package name are returned. Each record includes the managed `alias` and `installPath`.
+
 ## Target Formats
 
 All load, verify, and uninstall methods accept these target forms:
@@ -263,7 +289,6 @@ Selector behavior:
   package-lock.json
   node_modules/
   .versionary/
-    locks/
     tmp/
     artifacts/
     metadata/
@@ -372,7 +397,6 @@ When debugging an error, check:
 | `ERR_VERSIONARY_INSTALL_FAILED` | The install pipeline failed after resolution started | Registry/network issues, auth failures, npm reify failures, or manifest rewrite failures | Check `error.cause` first. Verify registry reachability, VPN/auth configuration, write permissions for the store root, and the package spec you passed. If the store looks inconsistent after a failed install, run `clean()` and retry. |
 | `ERR_VERSIONARY_VERIFY_FAILED` | A verification step failed | The package could not be loaded in the selected mode, or your custom verify hook threw or returned `false` | Inspect `error.cause` or the `verify()` result error. If the package is ESM-only, use `import` mode. If your hook failed, relax or fix the hook logic. |
 | `ERR_VERSIONARY_REQUIRE_UNSUPPORTED` | `require()` is used for a package without a CommonJS entrypoint | The package is ESM-only or does not expose a `require` condition | Use `await versionary.import(...)` instead of `require()`. |
-| `ERR_VERSIONARY_LOCK_TIMEOUT` | Versionary cannot acquire the store lock in time | Another install, uninstall, prune, or clean operation is still running or left a stale lock behind | Wait for the other operation to finish. If the process crashed and the store is stuck, inspect `~/.versionary/.versionary/locks` or your custom store root and then retry. |
 | `ERR_VERSIONARY_STORE_INIT_FAILED` | The managed store cannot be initialized or normalized | The store manifest is missing after init, is corrupted, or declares an unsupported managed scope | Check the store root `package.json`. If it is corrupted or managed by something else, remove it or point Versionary at a clean store directory. |
 
 ### Network and Registry Failures

@@ -191,7 +191,7 @@ describe('install and load modules', () => {
 
       const rewritten = await readJson(path.join(importInstallPath, 'package.json'));
       assert.equal(rewritten.name, importAlias);
-      assert.equal(rewritten.version, 'npm://@example/dual-fixture@1.0.0');
+      assert.equal(rewritten.version, '1.0.0');
       assert.equal(rewritten.versionary.originalName, '@example/dual-fixture');
 
       const importEntry = await resolveImportEntry(tempDir, importAlias);

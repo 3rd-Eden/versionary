@@ -255,4 +255,42 @@ describe('Versionary integration', () => {
       );
     });
   });
+
+  it('lists installed packages and filters by package name', async () => {
+    await withVersionary(async ({ versionary }) => {
+      const cjsFixturePath = path.join(fixturesRoot, 'cjs-fixture');
+      await versionary.install('abbrev', '1.1.1');
+      await versionary.install('@example/cjs-fixture', `file:${cjsFixturePath}`);
+
+      const all = await versionary.list();
+      assert.equal(all.length, 2);
+      assert.ok(all.every((entry) => entry.alias && entry.installPath));
+
+      const abbrevOnly = await versionary.list('abbrev');
+      assert.equal(abbrevOnly.length, 1);
+      assert.equal(abbrevOnly[0].packageName, 'abbrev');
+
+      const none = await versionary.list('nonexistent');
+      assert.equal(none.length, 0);
+    });
+  });
+
+  it('rejects invalid install and prune inputs', async () => {
+    await withVersionary(async ({ versionary }) => {
+      await assert.rejects(
+        () => versionary.install(''),
+        (error) => error?.code === 'ERR_VERSIONARY_INVALID_TARGET'
+      );
+
+      await assert.rejects(
+        () => versionary.install(42),
+        (error) => error?.code === 'ERR_VERSIONARY_INVALID_TARGET'
+      );
+
+      await assert.rejects(
+        () => versionary.prune(''),
+        (error) => error?.code === 'ERR_VERSIONARY_INVALID_TARGET'
+      );
+    });
+  });
 });

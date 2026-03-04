@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises';
 import { createError } from '../errors.js';
+/** @typedef {import('../types.js').StorePackage} StorePackage */
 import { getStorePaths } from '../utils/paths.js';
 import { readStorePackage } from './read-store-package.js';
 import { writeStorePackage } from './write-store-package.js';
@@ -8,7 +9,7 @@ import { writeStorePackage } from './write-store-package.js';
  * Creates the base store manifest used for new stores.
  *
  * @param {{ registry?: string, scopes?: Record<string, string> }} config
- * @returns {Record<string, unknown>}
+ * @returns {StorePackage}
  */
 function createBaseStorePackage(config) {
   return {
@@ -30,7 +31,7 @@ function createBaseStorePackage(config) {
  * Creates or normalizes the managed store on disk.
  *
  * @param {{ storeRoot: string, registry?: string, scopes?: Record<string, string> }} config
- * @returns {Promise<{ paths: ReturnType<typeof getStorePaths>, storePackage: Record<string, unknown> }>}
+ * @returns {Promise<{ paths: ReturnType<typeof getStorePaths>, storePackage: StorePackage }>}
  */
 export async function ensureStoreInitialized(config) {
   const paths = getStorePaths(config.storeRoot);
