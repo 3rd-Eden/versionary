@@ -288,6 +288,13 @@ export class Versionary {
       };
 
       await writeStorePackage(paths.packageJsonPath, storePackage);
+
+      if (installOptions.force && existingRecord) {
+        // Force reinstalls must invalidate the existing tree entry so Arborist
+        // cannot treat a same-alias file dependency as already satisfied.
+        await rm(installRecord.installPath, { recursive: true, force: true });
+      }
+
       await reifyStore(this.storeRoot, this.npmOptions);
       await rewriteInstalledManifest(installRecord);
 
