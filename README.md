@@ -6,7 +6,7 @@ Manage multiple installed versions of the same npm package in a dedicated local 
 
 ## Requirements
 
-- Node.js `>= 22`
+- Node.js `>= 24`
 - ESM-only consumers
 
 ## Install
@@ -428,7 +428,7 @@ The default test command:
 
 - uses Node's built-in test runner
 - enables `--experimental-test-coverage`
-- enforces at least `90%` line coverage
+- enforces at least `90%` line and branch coverage
 
 Current tests cover:
 

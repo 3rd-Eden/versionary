@@ -12,7 +12,8 @@ import { snapshotLocalSource } from './snapshot-local-source.js';
  *   alias?: string,
  *   artifactsRoot?: string,
  *   npmOptions?: Record<string, unknown>,
- *   storeRoot?: string
+ *   storeRoot?: string,
+ *   persistArtifacts?: boolean
  * }} context
  * @returns {Promise<{ dependencySpec: string, artifactPath?: string }>}
  */
@@ -32,7 +33,10 @@ export async function normalizeDependencySpec(context) {
   }
 
   if (parsed.type === 'file' || parsed.type === 'directory') {
-    return snapshotLocalSource(/** @type {any} */ (context));
+    return snapshotLocalSource({
+      .../** @type {any} */ (context),
+      persist: context.persistArtifacts,
+    });
   }
 
   return {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,20 @@ async function createStoreRoot() {
 
 async function readJson(filePath) {
   return JSON.parse(await readFile(filePath, 'utf8'));
+}
+
+async function createLocalFixture(rootDir, answer = 42) {
+  await mkdir(rootDir, { recursive: true });
+  await writeFile(path.join(rootDir, 'package.json'), JSON.stringify({
+    name: '@example/temp-cjs-fixture',
+    version: '1.0.0',
+    main: './index.cjs'
+  }), 'utf8');
+  await writeFile(
+    path.join(rootDir, 'index.cjs'),
+    `module.exports = {\n  kind: 'cjs',\n  answer: ${answer},\n};\n`,
+    'utf8'
+  );
 }
 
 async function withVersionary(testFn) {
@@ -184,11 +198,161 @@ describe('Versionary integration', () => {
         (error) => error?.code === 'ERR_VERSIONARY_VERIFY_FAILED'
       );
 
+      const esmInstalled = await versionary.list('@example/esm-fixture');
+      assert.equal(esmInstalled.length, 1);
+      assert.equal(esmInstalled[0].alias, esmRecord.alias);
+
       await assert.rejects(
         () => versionary.import('not-a-valid-target'),
         (error) => error?.code === 'ERR_VERSIONARY_INVALID_TARGET'
       );
     });
+  });
+
+  it('honors second-argument force installs and restores the previous install on verify failure', async () => {
+    await withVersionary(async ({ versionary }) => {
+      const fixtureRoot = await createStoreRoot();
+      const spec = `@example/temp-cjs-fixture@file:${fixtureRoot}`;
+
+      try {
+        await createLocalFixture(fixtureRoot, 42);
+
+        const first = await versionary.install(spec);
+        const firstLoaded = await versionary.require(first);
+        assert.equal(firstLoaded.answer, 42);
+
+        await writeFile(
+          path.join(fixtureRoot, 'index.cjs'),
+          "module.exports = {\n  kind: 'cjs',\n  answer: 99,\n};\n",
+          'utf8'
+        );
+
+        await assert.rejects(
+          () =>
+            versionary.install(spec, {
+              force: true,
+              verify: {
+                mode: 'require',
+                hook: async () => false
+              }
+            }),
+          (error) => error?.code === 'ERR_VERSIONARY_VERIFY_FAILED'
+        );
+
+        const afterFailedForce = await versionary.list('@example/temp-cjs-fixture');
+        assert.equal(afterFailedForce.length, 1);
+        assert.equal(afterFailedForce[0].installedAt, first.installedAt);
+        assert.match(
+          await readFile(path.join(first.installPath, 'index.cjs'), 'utf8'),
+          /answer: 42/
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        const forced = await versionary.install(spec, { force: true });
+        assert.notEqual(forced.installedAt, first.installedAt);
+        assert.match(
+          await readFile(path.join(forced.installPath, 'index.cjs'), 'utf8'),
+          /answer: 99/
+        );
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it('removes a newly added local install when verification fails', async () => {
+    await withVersionary(async ({ storeRoot, versionary }) => {
+      const fixtureRoot = await createStoreRoot();
+      const spec = `@example/temp-cjs-fixture@file:${fixtureRoot}`;
+
+      try {
+        await createLocalFixture(fixtureRoot, 42);
+
+        await assert.rejects(
+          () =>
+            versionary.install(spec, {
+              verify: {
+                mode: 'require',
+                hook: async () => false
+              }
+            }),
+          (error) => error?.code === 'ERR_VERSIONARY_VERIFY_FAILED'
+        );
+
+        assert.deepEqual(await versionary.list('@example/temp-cjs-fixture'), []);
+        assert.deepEqual((await readJson(path.join(storeRoot, 'package.json'))).dependencies, {});
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it('does not rewrite local artifacts when reusing an existing install', async () => {
+    await withVersionary(async ({ versionary }) => {
+      const fixtureRoot = await createStoreRoot();
+      const spec = `@example/temp-cjs-fixture@file:${fixtureRoot}`;
+
+      try {
+        await createLocalFixture(fixtureRoot, 42);
+
+        const first = await versionary.install(spec);
+        const beforeArtifact = await stat(first.artifactPath);
+
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        await writeFile(
+          path.join(fixtureRoot, 'index.cjs'),
+          "module.exports = {\n  kind: 'cjs',\n  answer: 77,\n};\n",
+          'utf8'
+        );
+
+        const second = await versionary.install(spec);
+        const afterArtifact = await stat(first.artifactPath);
+
+        assert.equal(second.installedAt, first.installedAt);
+        assert.equal(afterArtifact.mtimeMs, beforeArtifact.mtimeMs);
+        assert.equal((await versionary.require(first)).answer, 42);
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it('emits structured logger callbacks for install and verify failures', async () => {
+    const storeRoot = await createStoreRoot();
+    const fixtureRoot = await createStoreRoot();
+    const events = [];
+    const versionary = new Versionary(storeRoot, {
+      logger: {
+        debug: (message) => events.push(['debug', message]),
+        info: (message) => events.push(['info', message]),
+        warn: (message) => events.push(['warn', message]),
+        error: (message) => events.push(['error', message]),
+      }
+    });
+
+    try {
+      await createLocalFixture(fixtureRoot, 42);
+
+      await assert.rejects(
+        () =>
+          versionary.install(`@example/temp-cjs-fixture@file:${fixtureRoot}`, {
+            verify: {
+              mode: 'require',
+              hook: async () => false
+            }
+          }),
+        (error) => error?.code === 'ERR_VERSIONARY_VERIFY_FAILED'
+      );
+
+      assert.ok(events.some(([level, message]) => level === 'debug' && message === 'Initializing store'));
+      assert.ok(events.some(([level, message]) => level === 'info' && message === 'Installing package'));
+      assert.ok(events.some(([level, message]) => level === 'warn' && message === 'Verification failed'));
+      assert.ok(events.some(([level, message]) => level === 'error' && message === 'Install failed, rolling back store state'));
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+      await rm(storeRoot, { recursive: true, force: true });
+    }
   });
 
   it('can prune older installed variants after a selector-based install', async () => {
@@ -290,6 +454,18 @@ describe('Versionary integration', () => {
       await assert.rejects(
         () => versionary.prune(''),
         (error) => error?.code === 'ERR_VERSIONARY_INVALID_TARGET'
+      );
+    });
+  });
+
+  it('surfaces a missing store manifest after initialization', async () => {
+    await withVersionary(async ({ storeRoot, versionary }) => {
+      await versionary.clean();
+      await rm(path.join(storeRoot, 'package.json'));
+
+      await assert.rejects(
+        () => versionary.list(),
+        (error) => error?.code === 'ERR_VERSIONARY_STORE_INIT_FAILED'
       );
     });
   });

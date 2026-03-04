@@ -74,7 +74,8 @@ function extractGitSha(resolvedLocator) {
  *   packageName: string,
  *   npmOptions: Record<string, unknown>,
  *   paths: { artifactsRoot: string },
- *   storeRoot: string
+ *   storeRoot: string,
+ *   persistArtifacts?: boolean
  * }} context
  * @returns {Promise<{
  *   alias: string,
@@ -103,10 +104,11 @@ export async function resolveInstall(context) {
     alias,
     artifactsRoot: paths.artifactsRoot,
     packageName,
-    resolvedVersion,
-    resolvedLocator,
-    npmOptions,
-  });
+      resolvedVersion,
+      resolvedLocator,
+      npmOptions,
+      persistArtifacts: context.persistArtifacts,
+    });
 
   return {
     alias,

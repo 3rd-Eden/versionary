@@ -18,12 +18,20 @@ import { aliasToArtifactFilename } from '../utils/package-name-segment.js';
  */
 export async function snapshotLocalSource({ parsed, alias, artifactsRoot, npmOptions, storeRoot }) {
   const artifactPath = path.join(artifactsRoot, `${aliasToArtifactFilename(alias)}.tgz`);
+  const dependencySpec = `file:${path.relative(storeRoot, artifactPath)}`;
+
+  if (arguments[0]?.persist === false) {
+    return {
+      artifactPath,
+      dependencySpec,
+    };
+  }
 
   if (parsed.type === 'file') {
     await copyFile(parsed.fetchSpec, artifactPath);
     return {
       artifactPath,
-      dependencySpec: `file:${path.relative(storeRoot, artifactPath)}`,
+      dependencySpec,
     };
   }
 
@@ -35,6 +43,6 @@ export async function snapshotLocalSource({ parsed, alias, artifactsRoot, npmOpt
 
   return {
     artifactPath,
-    dependencySpec: `file:${path.relative(storeRoot, artifactPath)}`,
+    dependencySpec,
   };
 }

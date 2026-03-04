@@ -1,10 +1,10 @@
 {
   "name": "@versionary/versionary",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Manage multiple installed versions of a package in a dedicated store.",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "exports": {
     ".": {
